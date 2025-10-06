@@ -62,7 +62,7 @@ def Plan(request: PlanRequest) -> PlanResponse:
 
 if __name__ == "__main__":
   name = "Print Planner"
-  description = "A PyAres implementation of Greg's 3D Printing Planner"
+  description = "A PyAres implementation of Graig Ganitano's 3D Printing Planner"
   planner = AresPlannerService(Plan, name,  description, "1.0.0", port=8002)
 
   #Mark that the planner supports numbers
