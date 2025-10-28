@@ -1,3 +1,36 @@
+#!/usr/bin/env python3
+# -*- coding:utf-8 -*-
+###
+# File: /src/athena_planner/simulated_annealing/simulated_anealing.py
+# Project: ARES-Print-Planner
+# Created Date: Monday, October 27th 2025, 1:54:16 pm
+# Author(s): Arthur W. N. Sloan
+# -----
+# MIT License
+# 
+# Copyright (c) 2025 AFRL-ARES
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+# 
+###
+
+
 import numpy as np
 from PyAres import AresPlannerService, PlanRequest, PlanResponse, AresDataType
 from typing import Any
@@ -54,11 +87,7 @@ def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviati
 
 def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
    """
-   Graig's Simulated annealing planner:
-   - Summary of Planning Logic (for itteration # N>0)
-      1. Perterb the current best set of parameters using a normal distrbution with a user specified set of standard devations for each parameter
-      2. Print a new iteration and obtain a new objective function score.  
-      3. 
+   PyAres-ified Graig's Simulated annealing planner:
       
    """
    # Graig's simulated annealing planner:
