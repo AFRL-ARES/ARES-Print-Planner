@@ -1,47 +1,56 @@
 import numpy as np
 from PyAres import AresPlannerService, PlanRequest, PlanResponse, AresDataType
+from typing import Any
 
-def perturb_parameter(parameter_val, min_val, max_val, std):
-    new_settings = []
-
-    for num, parameter in enumerate(settings[0]):
-        while True:
-            new_parameter = np.random.normal(parameter, stds[num])
-            if parameter_ranges[num][0] <= new_parameter <= parameter_ranges[num][1]:
-                new_settings.append(new_parameter)
-                break  
-            else:
-                continue
-    return np.array([new_settings])
-
-def find_matching_setting(param_name: str, settings: Dict[str, any]) -> int:
+def find_matching_setting(param_name: str, settings: dict[str, Any]) -> int:
+   #TODO Is there a way for ARES OS to supply some or all of this info so we don't need to hard code it?
+   maping_dict = {'bed':"Bed Temp Standard Deviation",
+                  'nozzle':"Nozzle Temp Standard Deviation",
+                  'extrusion':'Extrusion Rate Mod Standard Deviation',
+                  'speed':"Speed Mod Standard Deviation",
+                  'retraction':'Retraction Length Standard Deviation',
+                  'acceleration':'Retraction Length Standard Deviation',
+                  'start_temperature':'Simulated Annealing Starting Temperature',
+                  'cooling_rate':'Simulated Annealing Cooling Rate'}
    param_name = param_name.lower()
+   if param_name in maping_dict:
+      return settings[maping_dict[param_name]]
 
-   if("bed" in param_name):
-      return settings["Bed Temp Standard Deviation"]
-   
-   if("nozzle" in param_name):
-      return settings["Nozzle Temp Standard Deviation"]
-   
-   if("extrusion" in param_name):
-      return settings["Extrusion Rate Mod Standard Deviation"]
-   
-   if("speed" in param_name):
-      return settings["Speed Mod Standard Deviation"]
-   
-   if("retraction" in param_name):
-      return settings["Retraction Length Standard Deviation"]
-   
-   if("acceleration" in param_name):
-      return settings["Acceleration Mod Standard Deviation"]
-   
-   if("start_temperature" in param_name):
-      return settings["Simulated Annealing Starting Temperature"]
-   
-   if("cooling_rate" in param_name)
-      return settings["Simulated Annealing Cooling Rate"]
+def get_parameter_data(request: PlanRequest,idx: int) -> tuple[list,list,list[tuple],list]:
+   parameter_names = []
+   parameter_values = []
+   parameter_bounds = []
+   parameter_deviations = []
+   for parameter in request.parameters:
+      parameter_names.append(parameter.name)
+      parameter_bounds.append((parameter.minimum_value,parameter.maximum_value)) # order is (min, max)
+      parameter_deviations.append(find_matching_setting(parameter.name, request.settings))
+      if len(parameter.param_history) == 0: # For the first loop ?
+         # TODO Do we need logic here? If planning is called after the first experiment the length of the
+         # parameter history should always be at least 1?
+         parameter_values.append(parameter.maximum_value)
+      else:
+         parameter_values.append(parameter.param_history[idx].planned_value) # Would we want to do planned or achieved value here?
+   return parameter_names, parameter_values, parameter_bounds, parameter_deviations
 
-   
+def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviations:list) -> list: 
+   # Randomly perturb the values of a condtion given lists of the 
+   # parameter names, the starting paramter values, allowed bounds (min, max), 
+   # and the distribution standard deviations 
+   new_condition = []
+   for i, _ in enumerate(names):
+      old_val = condition[i]
+      dev = deviations[i]
+      min_val = bounds[i][0]
+      max_val = bounds[i][1]
+      while True:
+         new_val = np.random.normal(old_val,dev)
+         if (min_val <= new_val <= max_val):
+            new_condition.append(new_val)
+            break
+         else:
+            continue
+   return new_condition
 
 def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
    """
@@ -54,122 +63,35 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
    """
    # Graig's simulated annealing planner:
    # For each itteration, the planner perterbs the input settings for the 3d print and
-
-   current_names = [] 
-   current_values = []
-   parameter_names = []
-   parameter_values = []
-   best_result_index = -1
-
+   N_iter = len(request.analysis_results)
    # Calculate the temperature for simulated annealing algrithinm   
    if len(request.analysis_results) != 0:
-      N_iter = len(request.analysis_results)
+      
       start_temp = find_matching_setting("start_temperature", request.settings)
       cooling_rate = find_matching_setting("cooling_rate", request.settings)
       anneal_temp = np.round(start_temp*np.exp(-cooling_rate*N_iter),3)
-      
-      # The nomenclature here is a bit odd  because we're adapting from how graig wrote his initial code
-      # Here the most recent result is the candidate set of conditions
-      
-      candidate_objective_val  = request.analysis_results[-1]
-      current_objective_val = request.analysis_results[-2]
-      
-
-      best_objective_val = max(request.analysis_results)
-      best_result_index = request.analysis_results.index(max(request.analysis_results))
-
-      delta = current_objective_val - candidate_objective_val # The change in the objective function from the last run
-      anneal_criteria = np.exp(delta/anneal_temp) > np.random.uniform(0, 1)
-      # Since a low score is better, a positive delta means that the print improved
-
-   for parameter in request.parameters:
-      while True:
-         if len(parameter.param_history) == 0: # For the first loop
-            parameter_names.append(parameter.name)
-            parameter_values.append(parameter.maximum_value)
-            break
-         else:
-            # Get the standard deviation that will be used to perturb each paramter
-            deviation = find_matching_setting(parameter.name, request.settings)
-            old_value = parameter.param_history[best_result_index] # or -1?
-            new_value = np.random.normal(old_value.planned_value,deviation)
-            if(parameter.minimum_value <= new_value <= parameter.maximum_value):
-              parameter_names.append(parameter.name)
-              parameter_values.append(round(new_value))
-              break
-            else:
-               continue
-
-   if delta > 0 or anneal_criteria:
+      root_condition_index = -1 # TODO Put something real here once we figure out how best to implement it
+   else: # Do we want logic supporting calling the planner before the first experiment?
       pass
-      if current
 
+   if N_iter == 1:
+      pass
+   else:
+      # Compares the analyzer values to see if the new condition is better than the old root condtion)
+      test_conditon_value = request.analysis_results[-1]
+      root_condition_value = request.analysis_results[root_condition_index]
+      delta = root_condition_value - test_conditon_value
+      delta_criteria = delta > 0
 
+      # Sample from a pseudo-boltzman distribution to see if we update the root condition even if the score is lower
+      # This can potentially kick the planner out of a local minimum.
+      annealing_criteria = np.exp(delta/anneal_temp) > np.random.uniform(0, 1)
 
+      if delta_criteria or annealing_criteria:
+         root_condition_index = N_iter-1 # TODO how do we save this out to ARES OS for it to be avialible the next time the planner is called
 
-   return PlanResponse(parameter_names, parameter_values)
+      parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request,root_condition_index)
 
+      new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations)
 
-
-def simulated_annealing(max_iterations, start_temp, eta, stds, resume_filename=None, 
-                        initial_settings = None, parameter_ranges=[(160, 240), (25, 100), (20, 180), 
-                               (0, 100), (0.8, 1.6)]):
-    
-    
-
-
-
-    if resume_filename:
-        df = pd.read_csv(resume_filename)
-        last_experiment = df.iloc[-1]
-        best_solution = np.array([last_experiment.iloc[0:5].to_numpy()])
-        best_value = last_experiment.iloc[5]
-        current_solution = np.array([last_experiment.iloc[6:11].to_numpy()])
-        current_value = last_experiment.iloc[11]
-        temperature = last_experiment.iloc[12]
-        temperature *= 1 - eta
-        iteration = int(last_experiment.iloc[13]) + 1         
-    else:
-        if initial_settings is None:
-            iteration = 0
-            best_solution = np.array([[np.random.uniform(min_val, max_val) for min_val, max_val in parameter_ranges]])
-            best_value = objective_function(best_solution, iteration)
-            current_solution = best_solution
-            current_value = best_value
-            temperature = start_temp
-            data = list(best_solution[0]) + [best_value] + list(current_solution[0]) + [current_value] +[temperature] + [iteration]
-            df = pd.DataFrame([data])
-            df.to_csv('sa_data.csv', index=False)
-            iteration += 1
-        else:    
-            iteration = 0
-            best_solution = initial_settings
-            best_value = objective_function(best_solution, iteration)
-            current_solution = best_solution
-            current_value = best_value
-            temperature = start_temp
-            data = list(best_solution[0]) + [best_value] + list(current_solution[0]) + [current_value] +[temperature] + [iteration]
-            df = pd.DataFrame([data])
-            df.to_csv('sa_data.csv', index=False)
-            iteration += 1
-        
-    while iteration <= max_iterations:
-        
-        new_solution = perturb(current_solution, parameter_ranges, stds)
-        new_value = objective_function(new_solution, iteration)
-
-        delta = current_value - new_value
-
-        if delta > 0 or math.exp(delta / temperature) > np.random.uniform(0, 1):
-            current_solution, current_value = new_solution, new_value
-
-            if current_value < best_value:
-                best_solution, best_value = current_solution, current_value
-
-        data = list(best_solution[0]) + [best_value] + list(current_solution[0]) + [current_value] +[temperature] + [iteration]
-        df.loc[len(df)] = data
-        df.to_csv('sa_data.csv', index=False)
-        iteration += 1
-        temperature *= 1 - eta
-
-    return best_solution, best_value
+   return PlanResponse(parameter_names, new_test_condition)
