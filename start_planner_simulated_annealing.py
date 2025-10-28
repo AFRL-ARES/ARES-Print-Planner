@@ -31,7 +31,7 @@
 ###
 
 from PyAres import AresPlannerService, AresDataType
-from athena_planner.sim_anneal import simulated_annealing_planner
+from athena_planner.simulated_annealing import simulated_annealing_planner
 
 if __name__ == "__main__":
   name = "Simulated Annealing 3D Print Planner"
