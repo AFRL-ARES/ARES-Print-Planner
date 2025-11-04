@@ -30,10 +30,11 @@
 # 
 ###
 
-
 import numpy as np
-from PyAres import AresPlannerService, PlanRequest, PlanResponse, AresDataType
-from typing import Any
+from PyAres import PlanRequest, PlanResponse
+from typing import Any, List
+
+root_condition_index = -1
 
 def find_matching_setting(param_name: str, settings: dict[str, Any]) -> int:
    #TODO Is there a way for ARES OS to supply some or all of this info so we don't need to hard code it?
@@ -48,6 +49,9 @@ def find_matching_setting(param_name: str, settings: dict[str, Any]) -> int:
    param_name = param_name.lower()
    if param_name in maping_dict:
       return settings[maping_dict[param_name]]
+   
+   else:
+      return -1
 
 def get_parameter_data(request: PlanRequest,idx: int) -> tuple[list,list,list[tuple],list]:
    parameter_names = []
@@ -88,25 +92,41 @@ def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviati
 def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
    """
    PyAres-ified Graig's Simulated annealing planner:
-      
    """
    # Graig's simulated annealing planner:
    # For each itteration, the planner perterbs the input settings for the 3d print and
+   global root_condition_index
    N_iter = len(request.analysis_results)
-   # Calculate the temperature for simulated annealing algrithinm   
-   if len(request.analysis_results) != 0:
-      
-      start_temp = find_matching_setting("start_temperature", request.settings)
-      cooling_rate = find_matching_setting("cooling_rate", request.settings)
-      anneal_temp = np.round(start_temp*np.exp(-cooling_rate*N_iter),3)
-      root_condition_index = -1 # TODO Put something real here once we figure out how best to implement it
-   else: # Do we want logic supporting calling the planner before the first experiment?
-      pass
+   parameter_names : List[str] = []
+   new_test_condition : List[float] = []
+   
+   # Calculate the temperature for simulated annealing algorithm
+   start_temp = find_matching_setting("start_temperature", request.settings)
+   cooling_rate = find_matching_setting("cooling_rate", request.settings)
+   anneal_temp = np.round(start_temp*np.exp(-cooling_rate*N_iter),3)
 
-   if N_iter == 1:
-      pass
+   if N_iter == 0:
+      root_condition_index = 0
+      for param in request.parameters:
+         parameter_names.append(param.name)
+         
+         if isinstance(param.initial_value, float):
+            new_test_condition.append(param.initial_value)
+
+         else:
+            print("Problem trying to access intial value! Value was not of type float.")
+            new_test_condition.append(0.0)
+
+      return PlanResponse(parameter_names=parameter_names, parameter_values=new_test_condition)
+
+   elif N_iter == 1:
+      parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request, root_condition_index)
+      new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations)
+      root_condition_index = 1
+      return PlanResponse(parameter_names, new_test_condition)
+   
    else:
-      # Compares the analyzer values to see if the new condition is better than the old root condtion)
+      # Compares the analyzer values to see if the new condition is better than the old root condtion
       test_conditon_value = request.analysis_results[-1]
       root_condition_value = request.analysis_results[root_condition_index]
       delta = root_condition_value - test_conditon_value
@@ -117,10 +137,11 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
       annealing_criteria = np.exp(delta/anneal_temp) > np.random.uniform(0, 1)
 
       if delta_criteria or annealing_criteria:
-         root_condition_index = N_iter-1 # TODO how do we save this out to ARES OS for it to be avialible the next time the planner is called
+         # TODO how do we save this out to ARES OS for it to be available the next time the planner is called
+         root_condition_index = N_iter-1 
 
-      parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request,root_condition_index)
+      parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request, root_condition_index)
 
       new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations)
 
-   return PlanResponse(parameter_names, new_test_condition)
+      return PlanResponse(parameter_names, new_test_condition)

@@ -41,13 +41,15 @@ if __name__ == "__main__":
   #Mark that the planner supports numbers
   planner.add_supported_type(AresDataType.NUMBER)
   
-  #Add Settings, allow user to set standard deviation on all parameters
+  #Standard Deviation Settings
   planner.add_setting("Nozzle Temp Standard Deviation", AresDataType.NUMBER)
   planner.add_setting("Bed Temp Standard Deviation", AresDataType.NUMBER)
   planner.add_setting("Extrusion Rate Mod Standard Deviation", AresDataType.NUMBER)
   planner.add_setting("Speed Mod Standard Deviation", AresDataType.NUMBER)
   planner.add_setting("Retraction Length Standard Deviation", AresDataType.NUMBER)
   planner.add_setting("Acceleration Mod Standard Deviation", AresDataType.NUMBER)
+
+  #Other Settings
   planner.add_setting("Simulated Annealing Starting Temperature", AresDataType.NUMBER)
   planner.add_setting("Simulated Annealing Cooling Rate", AresDataType.NUMBER)
 
