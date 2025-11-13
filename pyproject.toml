@@ -16,7 +16,8 @@ license = "MIT"
 dependencies = [
     "PyAres (>=0.1.0)",
     "numpy (>=2.2.0)",
-    "ares-datamodel (>=0.13.2b1)"
+    "ares-datamodel (>=0.13.2b1)",
+    "ffmpeg-python"
 ]
 
 [project.urls]

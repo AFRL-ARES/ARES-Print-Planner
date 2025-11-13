@@ -65,7 +65,7 @@ def make_condition_plots(request:PlanRequest):
 
     images = []
     for i in range(n_iter):
-        fig,ax = plt.subplots()
+        fig,ax = plt.subplots(figsize=(6.4,3.6))
         ax.set_xlim(-1,n_iter+1)
         ax.set_ylim(-0.5,1)
         ax.set_xticks(np.arange(0,n_iter))
@@ -87,7 +87,7 @@ def make_condition_plots(request:PlanRequest):
     highlight_images = []
 
     for i in range(n_iter):
-        fig,ax = plt.subplots()
+        fig,ax = plt.subplots(figsize=(6.4,3.6))
         ax.set_xlim(-1,n_iter+1)
         ax.set_ylim(-0.5,1)
         ax.set_xticks(np.arange(0,n_iter))

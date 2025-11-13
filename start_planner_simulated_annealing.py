@@ -50,5 +50,7 @@ if __name__ == "__main__":
   planner.add_setting("Acceleration Mod Standard Deviation", AresDataType.NUMBER)
   planner.add_setting("Simulated Annealing Starting Temperature", AresDataType.NUMBER)
   planner.add_setting("Simulated Annealing Cooling Rate", AresDataType.NUMBER)
+  planner.add_setting("Make Visualizations", AresDataType.BOOLEAN)
+  planner.add_setting("Output Directory", AresDataType.STRING)
 
   planner.start()

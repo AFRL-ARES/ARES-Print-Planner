@@ -34,6 +34,9 @@
 import numpy as np
 from PyAres import AresPlannerService, PlanRequest, PlanResponse, AresDataType
 from typing import Any
+from athena_planner.visualization import make_condition_plots, make_results_plots, save_video
+import cv2
+from pathlib import Path
 
 def find_matching_setting(param_name: str, settings: dict[str, Any]) -> int:
    #TODO Is there a way for ARES OS to supply some or all of this info so we don't need to hard code it?
@@ -122,5 +125,31 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
       parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request,root_condition_index)
 
       new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations)
+   
+   if request.settings["Make Visualizations"]:
+      output_dir = Path(request.settings["Output Directory"])
+      condition_frames, highlighted_condition_frames = make_condition_plots(request)
+      results_frames = make_results_plots(request)
+      # TODO what about naming these with the approriate campaign/experiment info and putting them in the approraite folders?
+      for i, frame in enumerate(condition_frames):
+         condition_file = output_dir / f"iteration_{i}"/ "condition_plot.png"
+         cv2.imwrite(str(condition_file),frame)
+         hilight_file = output_dir / f"iteration_{i}" / "highlighted_condition_plot.png"
+         cv2.imwrite(str(hilight_file),highlighted_condition_frames[i])
+         retsult_file = output_dir / f"iteration_{i}" / "result_plot.png"
+         cv2.imwrite(str(retsult_file),highlighted_condition_frames[i])
+      condition_video = output_dir / "conditions.mp4"
+      save_video(str(condition_video),condition_frames,frametime=1.0)
+      highlight_video = output_dir / "highlighted_conditions.mp4"
+      save_video(str(highlight_video),highlighted_condition_frames,frametime=1.0)
+      results_video = output_dir / "results.mp4"
+      save_video(str(results_video),results_frames,frametime=1.0)
+
+
+
+
+
+
+
 
    return PlanResponse(parameter_names, new_test_condition)
