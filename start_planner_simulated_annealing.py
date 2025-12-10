@@ -31,7 +31,7 @@
 ###
 
 from PyAres import AresPlannerService, AresDataType
-from athena_planner.simulated_annealing import simulated_annealing_planner
+from src.athena_planner.simulated_annealing import simulated_annealing_planner
 
 if __name__ == "__main__":
   name = "Simulated Annealing 3D Print Planner"
@@ -48,9 +48,11 @@ if __name__ == "__main__":
   planner.add_setting("Speed Mod Standard Deviation", AresDataType.NUMBER)
   planner.add_setting("Retraction Length Standard Deviation", AresDataType.NUMBER)
   planner.add_setting("Acceleration Mod Standard Deviation", AresDataType.NUMBER)
+  planner.add_setting("Fan Speed Mod Standard Deviation", AresDataType.NUMBER)
 
   #Other Settings
   planner.add_setting("Simulated Annealing Starting Temperature", AresDataType.NUMBER)
   planner.add_setting("Simulated Annealing Cooling Rate", AresDataType.NUMBER)
+  planner.add_setting("Retain Historical Context", AresDataType.BOOLEAN) #If enabled, will continue using the best data from the previous campaigns to influence it's current decisions
 
   planner.start()
