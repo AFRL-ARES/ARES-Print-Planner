@@ -106,7 +106,7 @@ def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviati
       min_val = bounds[i][0]
       max_val = bounds[i][1]
       while True:
-         new_val = np.random.normal(old_val.planned_value,dev)
+         new_val = np.random.normal(old_val,dev)
          if (min_val <= new_val <= max_val):
             new_condition.append(new_val)
             break
