@@ -33,7 +33,7 @@
 import numpy as np
 from PyAres import PlanRequest, PlanResponse
 from typing import Any, List
-
+#%% persistent plannervariables, these are retained between calls to the planner service
 root_condition_index = -1
 root_condition_dict = {}
 last_condition_dict = {}
@@ -41,79 +41,56 @@ last_result_value = -1.0
 root_condition_result_value = -1.0
 total_iterations_completed = 0
 
-def find_matching_setting(param_name: str, settings: dict[str, Any]) -> int:
-   #TODO Is there a way for ARES OS to supply some or all of this info so we don't need to hard code it?
-   maping_dict = {'bed':"Bed Temp Standard Deviation",
-                  'nozzle temp':"Nozzle Temp Standard Deviation",
-                  'extrusion':'Extrusion Rate Mod Standard Deviation',
-                  'speed':"Speed Mod Standard Deviation",
-                  'retraction':'Retraction Length Standard Deviation',
-                  'acceleration':'Acceleration Standard Deviation',
-                  'fan speed mod':'Fan Speed Mod Standard Deviation',
-                  'start_temperature':'Simulated Annealing Starting Temperature',
-                  'cooling_rate':'Simulated Annealing Cooling Rate',
-                  'retain_historical_context':'Retain Historical Context'}
-   param_name = param_name.lower()
-   if param_name in maping_dict:
-      return settings[maping_dict[param_name]]
-   
-   else:
-      return -1
+'''
+An implementation of Graig Ganitano's Simulated Annealing Planner for 3D Printing.
+DOI: 10.1007/s40964-023-00480-1
 
-def get_parameter_data(request: PlanRequest) -> tuple[list,list,list[tuple],list]:
-   parameter_names = []
-   parameter_values = []
-   parameter_bounds = []
-   parameter_deviations = []
-   for parameter in request.parameters:
-      parameter_names.append(parameter.name)
-      parameter_bounds.append((parameter.minimum_value,parameter.maximum_value)) # order is (min, max)
-      parameter_deviations.append(find_matching_setting(parameter.name, request.settings))
-      if len(parameter.param_history) == 0:
-         # TODO Do we need logic here? If planning is called after the first experiment the length of the
-         # parameter history should always be at least 1?
-         parameter_values.append(parameter.maximum_value)
-      else:
-         parameter_values.append(root_condition_dict[parameter.name])
+Planner theory of operation:
+   The goal of the planner to is minimize the objective score of the process.
 
-   return parameter_names, parameter_values, parameter_bounds, parameter_deviations
+   The basic method of operation to acheive this goal is to randomly perturb 
+   each parameter by sampling from a normal distribution centered on the current 
+   value with a user specified standard deviation. 
 
-def get_historical_param_data(request: PlanRequest) ->  tuple[list,list,list[tuple],list]:
-   parameter_names = []
-   parameter_values = []
-   parameter_bounds = []
-   parameter_deviations = []
-   for parameter in request.parameters:
-      parameter_names.append(parameter.name)
-      parameter_bounds.append((parameter.minimum_value,parameter.maximum_value))
-      parameter_deviations.append(find_matching_setting(parameter.name, request.settings))
-      if root_condition_dict.get(parameter.name):
-         parameter_values.append(root_condition_dict[parameter.name])
-      else:
-         print(f"Error! Tried finding historical data, but none existing for parameter {parameter.name}. Planner cannot plan!")
-   
-   return parameter_names, parameter_values, parameter_bounds, parameter_deviations
-      
+   The planner operates from a "root condition" which serves as the current value from which the 
+   "test condition" is derived via the random perturbation. After each experimental iteration
+   if the objective score for the test conditon is lower (better) than the previous best objective score, 
+   the test condition becomes the new root condition. This will tend to cause the planner to find conditions 
+   that minimize the objective score in the vicinity of its root condition.
 
-def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviations:list) -> list: 
-   # Randomly perturb the values of a condtion given lists of the 
-   # parameter names, the starting paramter values, allowed bounds (min, max), 
-   # and the distribution standard deviations 
-   new_condition = []
-   for i, _ in enumerate(names):
-      old_val = condition[i]
-      dev = deviations[i]
-      min_val = bounds[i][0]
-      max_val = bounds[i][1]
-      while True:
-         new_val = np.random.normal(old_val,dev)
-         if (min_val <= new_val <= max_val):
-            new_condition.append(new_val)
-            break
-         else:
-            continue
-   return new_condition
+   In the event that the objective score is higher (worse), the planner checks the following inquality:
 
+   exp((best score - test score)/T) > uniform(0, 1)
+
+   Where T is the "temperature" of the simulation. If the inquality evaluates to true, the root condition 
+   is updated to the test condition regardles of the score, while if it is false the root condition is 
+   retained. This approach helps kick the planner out of local minima in the process response surface. 
+
+   The temperature of the simulation determines how frequently this kick occurs, with higher temperatures producing 
+   results closer to a random walk, and lower temperatures behaving more like a hill climbing/desecent approach. Within
+   the planner, this temperature is controlled by an initial temperature setting and a cooling rate, which causes the simulation 
+   temperature to decay as: T(N_itter) = T_0*exp(-<decay rate>*N_iter), and thus decreases the randomness of the planner over time.
+
+   Note that this is a pure simulated annealing planner, and there is no logic to force the planner to backtrack to 
+   known good conditions after the root conditions is updated by the annealing criteria.
+
+Planner settings:
+   This planner has the following settigns that must be defined when starting a PyAres planner service. 
+   There is string matching to associate the correct setting with the correct parameter, so names must be exact.
+      1. Bed Temp Standard Deviation
+      2. Nozzle Temp Standard Deviation
+      3. Extrusion Rate Mod Standard Deviation
+      4. Speed Mod Standard Deviation
+      5. Retraction Length Standard Deviation
+      6. Acceleration Standard Deviation
+      7. Fan Speed Mod Standard Deviation
+      8. Simulated Annealing Starting Temperature,
+      9. Simulated Annealing Cooling Rate
+      10. Retain Historical Context
+      11. RNG Seed
+
+'''
+#%% Main planner function called by planner service
 def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
    """
    PyAres-ified Graig's Simulated annealing planner:
@@ -191,6 +168,8 @@ def check_and_update_root(request: PlanRequest, retain_historical_context):
    test_conditon_value = request.analysis_results[-1]
    last_result_value = request.analysis_results[-1]
    delta = root_condition_result_value - test_conditon_value
+
+   # This is a minimization planner, so a better results is a lower score
    delta_criteria = delta > 0
 
    # Sample from a pseudo-boltzman distribution to see if we update the root condition even if the score is lower
@@ -210,3 +189,78 @@ def check_and_update_root(request: PlanRequest, retain_historical_context):
    # This means we need to check for an update between campaigns
    # else: 
    #    test_conditon_value = last_result_value
+
+#%% 
+def find_matching_setting(param_name: str, settings: dict[str, Any]) -> int:
+   #TODO Is there a way for ARES OS to supply some or all of this info so we don't need to hard code it?
+   maping_dict = {'bed':"Bed Temp Standard Deviation",
+                  'nozzle temp':"Nozzle Temp Standard Deviation",
+                  'extrusion':'Extrusion Rate Mod Standard Deviation',
+                  'speed':"Speed Mod Standard Deviation",
+                  'retraction':'Retraction Length Standard Deviation',
+                  'acceleration':'Acceleration Standard Deviation',
+                  'fan speed mod':'Fan Speed Mod Standard Deviation',
+                  'start_temperature':'Simulated Annealing Starting Temperature',
+                  'cooling_rate':'Simulated Annealing Cooling Rate',
+                  'retain_historical_context':'Retain Historical Context',
+                  'rng_seed':'RNG Seed'}
+   param_name = param_name.lower()
+   if param_name in maping_dict:
+      return settings[maping_dict[param_name]]
+   
+   else:
+      return -1
+
+def get_parameter_data(request: PlanRequest) -> tuple[list,list,list[tuple],list]:
+   parameter_names = []
+   parameter_values = []
+   parameter_bounds = []
+   parameter_deviations = []
+   for parameter in request.parameters:
+      parameter_names.append(parameter.name)
+      parameter_bounds.append((parameter.minimum_value,parameter.maximum_value)) # order is (min, max)
+      parameter_deviations.append(find_matching_setting(parameter.name, request.settings))
+      if len(parameter.param_history) == 0:
+         # TODO Do we need logic here? If planning is called after the first experiment the length of the
+         # parameter history should always be at least 1?
+         parameter_values.append(parameter.maximum_value)
+      else:
+         parameter_values.append(root_condition_dict[parameter.name])
+
+   return parameter_names, parameter_values, parameter_bounds, parameter_deviations
+
+def get_historical_param_data(request: PlanRequest) ->  tuple[list,list,list[tuple],list]:
+   parameter_names = []
+   parameter_values = []
+   parameter_bounds = []
+   parameter_deviations = []
+   for parameter in request.parameters:
+      parameter_names.append(parameter.name)
+      parameter_bounds.append((parameter.minimum_value,parameter.maximum_value))
+      parameter_deviations.append(find_matching_setting(parameter.name, request.settings))
+      if root_condition_dict.get(parameter.name):
+         parameter_values.append(root_condition_dict[parameter.name])
+      else:
+         print(f"Error! Tried finding historical data, but none existing for parameter {parameter.name}. Planner cannot plan!")
+   
+   return parameter_names, parameter_values, parameter_bounds, parameter_deviations
+      
+
+def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviations:list) -> list: 
+   # Randomly perturb the values of a condtion given lists of the 
+   # parameter names, the starting paramter values, allowed bounds (min, max), 
+   # and the distribution standard deviations 
+   new_condition = []
+   for i, _ in enumerate(names):
+      old_val = condition[i]
+      dev = deviations[i]
+      min_val = bounds[i][0]
+      max_val = bounds[i][1]
+      while True:
+         new_val = np.random.normal(old_val,dev)
+         if (min_val <= new_val <= max_val):
+            new_condition.append(new_val)
+            break
+         else:
+            continue
+   return new_condition

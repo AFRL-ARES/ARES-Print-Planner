@@ -35,8 +35,12 @@ from src.athena_planner.simulated_annealing import simulated_annealing_planner
 
 if __name__ == "__main__":
   name = "Simulated Annealing 3D Print Planner"
-  description = "A PyAres implementation of Graig Ganitano's Simulated Annealing 3D Printing Planner"
-  planner = AresPlannerService(simulated_annealing_planner, name,  description, "1.0.0", port=8002)
+  description = "A PyAres implementation of Graig Ganitano's Simulated Annealing 3D Printing Planner, see DOI: 10.1007/s40964-023-00480-1"
+  version = "1.0.1"
+  planner = AresPlannerService(simulated_annealing_planner,
+                               name,
+                               description,
+                               version, port=8002)
 
   #Mark that the planner supports numbers
   planner.add_supported_type(AresDataType.NUMBER)
@@ -54,5 +58,5 @@ if __name__ == "__main__":
   planner.add_setting("Simulated Annealing Starting Temperature", AresDataType.NUMBER)
   planner.add_setting("Simulated Annealing Cooling Rate", AresDataType.NUMBER)
   planner.add_setting("Retain Historical Context", AresDataType.BOOLEAN) #If enabled, will continue using the best data from the previous campaigns to influence it's current decisions
-
+  planner.add_setting("RNG Seed", AresDataType.NUMBER) # Sets a seed for the random number generator
   planner.start()
