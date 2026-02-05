@@ -109,7 +109,11 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
    # Calculate the temperature for simulated annealing algorithm
 
    retain_historical_context = find_matching_setting("retain_historical_context", request.settings)
-
+   rng_seed = find_matching_setting("rng_seed", request.settings)
+   if rng_seed is not None and rng_seed >0:
+      rng = np.random.default_rng(int(rng_seed))
+   else:
+      rng = np.random.default_rng()
    if N_iter == 0:
       # If the user chose to retain historical context, we grab the old values, if applicable
       if retain_historical_context and root_condition_dict:
@@ -117,7 +121,7 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
          #check_and_update_root(request, retain_historical_context)
          # We retained historical context successfully, use those values...
          parameter_names, root_condition_values, bounds, deviations = get_historical_param_data(request)
-         new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations)
+         new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations,rng)
 
       else:
          for param in request.parameters:
@@ -135,7 +139,7 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
 
    elif N_iter == 1:
       if retain_historical_context:
-         check_and_update_root(request, retain_historical_context)
+         check_and_update_root(request, retain_historical_context,rng)
 
          for param in request.parameters:
             root_condition_dict.update({param.name: param.param_history[0]})
@@ -143,22 +147,23 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
 
       
       parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request)
-      new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations)
+      new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations,rng)
       return PlanResponse(parameter_names, new_test_condition)
    
    else:
-      check_and_update_root(request, retain_historical_context)
+      check_and_update_root(request, retain_historical_context,rng)
       parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request)
-      new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations)
+      new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations,rng)
 
       return PlanResponse(parameter_names, new_test_condition)
    
 
-def check_and_update_root(request: PlanRequest, retain_historical_context):
+def check_and_update_root(request: PlanRequest, retain_historical_context,rng):
    """Updates the root value if applicable, as well as the last received result value"""
    global root_condition_result_value
    global last_result_value
    global total_iterations_completed
+   # 
 
    start_temp = find_matching_setting("start_temperature", request.settings)
    cooling_rate = find_matching_setting("cooling_rate", request.settings)
@@ -174,7 +179,7 @@ def check_and_update_root(request: PlanRequest, retain_historical_context):
 
    # Sample from a pseudo-boltzman distribution to see if we update the root condition even if the score is lower
    # This can potentially kick the planner out of a local minimum.
-   annealing_criteria = np.exp(delta/anneal_temp) > np.random.uniform(0, 1)
+   annealing_criteria = np.exp(delta/anneal_temp) > rng.uniform(0, 1)
 
    if delta_criteria or annealing_criteria:
       root_condition_result_value = request.analysis_results[-1]
@@ -246,7 +251,7 @@ def get_historical_param_data(request: PlanRequest) ->  tuple[list,list,list[tup
    return parameter_names, parameter_values, parameter_bounds, parameter_deviations
       
 
-def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviations:list) -> list: 
+def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviations:list, rng:np.random.Generator) -> list: 
    # Randomly perturb the values of a condtion given lists of the 
    # parameter names, the starting paramter values, allowed bounds (min, max), 
    # and the distribution standard deviations 
@@ -257,7 +262,7 @@ def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviati
       min_val = bounds[i][0]
       max_val = bounds[i][1]
       while True:
-         new_val = np.random.normal(old_val,dev)
+         new_val = rng.normal(old_val,dev)
          if (min_val <= new_val <= max_val):
             new_condition.append(new_val)
             break
