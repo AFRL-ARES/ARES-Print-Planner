@@ -33,6 +33,7 @@
 import numpy as np
 from PyAres import PlanRequest, PlanResponse
 from typing import Any, List
+from time import time
 #%% persistent plannervariables, these are retained between calls to the planner service
 root_condition_index = -1
 root_condition_dict = {}
@@ -111,9 +112,14 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
    retain_historical_context = find_matching_setting("retain_historical_context", request.settings)
    rng_seed = find_matching_setting("rng_seed", request.settings)
    if rng_seed is not None and rng_seed >0:
+      seq = np.random.SeedSequence(int(rng_seed))
+
       rng = np.random.default_rng(int(rng_seed))
    else:
-      rng = np.random.default_rng()
+      rng_seed = int(time())
+      seq = np.random.SeedSequence(rng_seed)
+      
+   rng = np.random.default_rng(seq)
    if N_iter == 0:
       # If the user chose to retain historical context, we grab the old values, if applicable
       if retain_historical_context and root_condition_dict:
