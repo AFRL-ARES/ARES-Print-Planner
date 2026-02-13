@@ -58,5 +58,6 @@ if __name__ == "__main__":
   planner.add_setting("Simulated Annealing Starting Temperature", AresDataType.NUMBER,optional=False)
   planner.add_setting("Simulated Annealing Cooling Rate", AresDataType.NUMBER,optional=False)
   planner.add_setting("Retain Historical Context", AresDataType.BOOLEAN) #If enabled, will continue using the best data from the previous campaigns to influence it's current decisions
+  planner.add_setting("Verbose Output", AresDataType.BOOLEAN) #If enabled, will print out more detailed information during planning
   planner.add_setting("RNG Seed", AresDataType.NUMBER,optional=True) # Sets a seed for the random number generator
   planner.start()

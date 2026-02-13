@@ -41,6 +41,7 @@ last_condition_dict = {}
 last_result_value = -1.0
 root_condition_result_value = -1.0
 total_iterations_completed = 0
+rand_gen = -1
 
 '''
 An implementation of Graig Ganitano's Simulated Annealing Planner for 3D Printing.
@@ -94,42 +95,80 @@ Planner settings:
 #%% Main planner function called by planner service
 def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
    """
-   PyAres-ified Graig's Simulated annealing planner:
+   PyAres-ified version of Graig's Simulated annealing planner:
    """
    # Graig's simulated annealing planner:
    # For each itteration, the planner perterbs the input settings for the 3d print and
-   # These values allow the planner to maintain context beyond the scope of a single campaign
+   # These values allow the planner to maintain context beyond the scope of a single campaign.
+   # Context is reset if the planner service is restarted.
+
    global root_condition_dict
    global last_result_value
    global root_condition_result_value
+   global rand_gen
+   global total_iterations_completed
 
+   verbose = bool(find_matching_setting("verbose output", request.settings))
    N_iter = len(request.analysis_results)
+   retain_historical_context = bool(find_matching_setting("retain_historical_context", request.settings))
+   rng_seed = find_matching_setting("rng_seed", request.settings)
+
+   if verbose:
+      print(f"--- Iteration #: {N_iter} ---")
+      if retain_historical_context:
+         print("Retaining Historical Context is ENABLED")
+      else:
+         print("Retaining Historical Context is DISABLED")
+      if root_condition_dict:
+         print("The current root condition is:")
+         for key, value in root_condition_dict.items():
+            print(f"\tParam: {key}, Value: {value}")
+         print(f'\tWith Objective Score: {root_condition_result_value}')
+
    parameter_names : List[str] = []
    new_test_condition : List[float] = []
    
-   # Calculate the temperature for simulated annealing algorithm
+   # Establish or retrieve the random number generator
+   if rand_gen == -1:
+      if rng_seed is not None and rng_seed >0:
+         seq = np.random.SeedSequence(int(rng_seed))
 
-   retain_historical_context = find_matching_setting("retain_historical_context", request.settings)
-   rng_seed = find_matching_setting("rng_seed", request.settings)
-   if rng_seed is not None and rng_seed >0:
-      seq = np.random.SeedSequence(int(rng_seed))
-
-      rng = np.random.default_rng(int(rng_seed))
+         rng = np.random.default_rng(int(rng_seed))
+      else:
+         rng_seed = int(time())
+         seq = np.random.SeedSequence(rng_seed)
+         
+      rng = np.random.default_rng(seq)
+      if verbose:
+         print("No existing Random Number Generator detected, creating new one with seed:", rng_seed)
+      rand_gen=rng
    else:
-      rng_seed = int(time())
-      seq = np.random.SeedSequence(rng_seed)
-      
-   rng = np.random.default_rng(seq)
+      rng = rand_gen
+
    if N_iter == 0:
-      # If the user chose to retain historical context, we grab the old values, if applicable
+      # If the user choses to retain historical context, we grab the old values, if applicable
       if retain_historical_context and root_condition_dict:
          #TODO: Fix
-         #check_and_update_root(request, retain_historical_context)
          # We retained historical context successfully, use those values...
-         parameter_names, root_condition_values, bounds, deviations = get_historical_param_data(request)
-         new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations,rng)
+         parameter_names, root_condition_values, bounds, deviations, success = get_historical_param_data(request)
+         if success: # if there is a mismatch between the reqeust and the historical data, we fallback to using the initial values to avoid crashing.
+            new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations, rng)
+         else:
+            if verbose:
+               print("Failed to retrieve historical context, using initial values.")
+            for param in request.parameters:
+               parameter_names.append(param.name)
+               
+               if isinstance(param.initial_value, float):
+                  new_test_condition.append(param.initial_value)
+                  root_condition_dict.update({param.name: param.initial_value})
 
+               else:
+                  print("Problem trying to access intial value! Value was not of type float.")
+                  new_test_condition.append(0.0)
       else:
+         if verbose:
+            print("First iteration, using initial values.")
          for param in request.parameters:
             parameter_names.append(param.name)
             
@@ -141,44 +180,80 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
                print("Problem trying to access intial value! Value was not of type float.")
                new_test_condition.append(0.0)
 
-      return PlanResponse(parameter_names=parameter_names, parameter_values=new_test_condition)
-
-   elif N_iter == 1:
-      if retain_historical_context:
-         check_and_update_root(request, retain_historical_context,rng)
-
+   elif N_iter == 1: # On the second iteration, may or may not have meaninful historical data to compare to depending on if historical context exists.
+      if retain_historical_context: # If there is hisorical context, we use the normal check & update root locgic
+         try:
+            check_and_update_root(request, retain_historical_context, verbose, rng)
+         except Exception as e:
+            print(f"Error updating root conditon on second itteration - {e}")
+      else: # If there is no historical context, we just use the first itteration as the root condition without comparison, and then perturb from there on the next itteration
          for param in request.parameters:
-            root_condition_dict.update({param.name: param.param_history[0]})
-            last_condition_dict.update({param.name: param.param_history[0]})
+            root_condition_dict.update({param.name: param.param_history[0].planned_value})
+            last_condition_dict.update({param.name: param.param_history[0].planned_value})
+            root_condition_result_value = request.analysis_results[0]
+            last_result_value = request.analysis_results[0]
+            if verbose:
+               print("Only one itteration completed, using it as the root conditon.")
+               print("The new root condition is:")
+               for key, value in root_condition_dict.items():
+                  print(f"\tParam: {key}, Value: {value}")
+               print(f'\tWith Objective Score: {root_condition_result_value}')
 
-      
+      if verbose:
+         print("Perturbing from root condition to get new test condition.")
+
       parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request)
-      new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations,rng)
-      return PlanResponse(parameter_names, new_test_condition)
+      new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations, rng)
    
    else:
-      check_and_update_root(request, retain_historical_context,rng)
+      try:
+         check_and_update_root(request, retain_historical_context, verbose, rng)
+      except Exception as e:
+         print(f"Error updating root conditon - {e}")
+      
+      if verbose:
+         print("The new root condition is:")
+         for key, value in root_condition_dict.items():
+            print(f"\tParam: {key}, Value: {value}")
+         print(f'\tWith Objective Score: {root_condition_result_value}')
+         print("Perturbing from root condition to get new test condition.")
+
       parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request)
       new_test_condition = perturb_parameters(parameter_names, root_condition_values, bounds, deviations,rng)
 
-      return PlanResponse(parameter_names, new_test_condition)
+   if verbose:
+      print("Proposed new test condition:")
+      for n,v in zip(parameter_names, new_test_condition):
+         print(f"\tParam: {n}, Value: {v}")
+      print(f"-------------------------")
+      total_iterations_completed += 1
+      
+   return PlanResponse(parameter_names=parameter_names, parameter_values=new_test_condition)
+
    
 
-def check_and_update_root(request: PlanRequest, retain_historical_context,rng):
+def check_and_update_root(request: PlanRequest, retain_historical_context:bool, verbose=False, rng=np.random.default_rng()) -> None:
    """Updates the root value if applicable, as well as the last received result value"""
    global root_condition_result_value
    global last_result_value
    global total_iterations_completed
+   global root_condition_dict
+   global last_condition_dict
    # 
 
    start_temp = find_matching_setting("start_temperature", request.settings)
    cooling_rate = find_matching_setting("cooling_rate", request.settings)
    anneal_temp = np.round(start_temp*np.exp(-cooling_rate*total_iterations_completed),3)
+   if verbose:
+      print(f"Temperature for simulated annealing: {anneal_temp}")
 
    # Compares the analyzer values to see if the new condition is better than the old root condtion
    test_conditon_value = request.analysis_results[-1]
    last_result_value = request.analysis_results[-1]
    delta = root_condition_result_value - test_conditon_value
+   if verbose:
+      print(f"Root Condition Score: {root_condition_result_value}")
+      print(f"Test Condition Score: {test_conditon_value}")
 
    # This is a minimization planner, so a better results is a lower score
    delta_criteria = delta > 0
@@ -186,23 +261,35 @@ def check_and_update_root(request: PlanRequest, retain_historical_context,rng):
    # Sample from a pseudo-boltzman distribution to see if we update the root condition even if the score is lower
    # This can potentially kick the planner out of a local minimum.
    annealing_criteria = np.exp(delta/anneal_temp) > rng.uniform(0, 1)
+   if verbose:
+      print(f"Delta Criteria Met: {delta_criteria}")
+      print(f"Annealing Criteria Met: {annealing_criteria}")
 
    if delta_criteria or annealing_criteria:
+      if verbose:
+         print("Updating root condition to the test condition.")
       root_condition_result_value = request.analysis_results[-1]
-      #root_condition_index = N_iter-1
-      
-      if retain_historical_context:
-         root_condition_result_value = request.analysis_results[-1]
-         for param in request.parameters:
-            root_condition_dict.update({param.name: param.param_history[-1]})
-            last_condition_dict.update({param.name: param.param_history[-1]})
 
-   # This means we need to check for an update between campaigns
-   # else: 
-   #    test_conditon_value = last_result_value
+      for param in request.parameters:
+         root_condition_dict.update({param.name: param.param_history[-1].planned_value})
+         last_condition_dict.update({param.name: param.param_history[-1].planned_value})
+   elif root_condition_result_value == -1: 
+      if verbose:
+         print("No Score for existing root condition. Updating root condition to the test condition.")
+      root_condition_result_value = request.analysis_results[-1]
+
+      for param in request.parameters:
+         root_condition_dict.update({param.name: param.param_history[-1].planned_value})
+         last_condition_dict.update({param.name: param.param_history[-1].planned_value})
+   else:
+      if verbose:
+         print("Retaining existing root condition.")
+      # Root condition remains the same, just update the last condition
+      for param in request.parameters:
+         last_condition_dict.update({param.name: param.param_history[-1]})
 
 #%% 
-def find_matching_setting(param_name: str, settings: dict[str, Any]) -> int:
+def find_matching_setting(param_name: str, settings: dict[str, Any]):
    #TODO Is there a way for ARES OS to supply some or all of this info so we don't need to hard code it?
    maping_dict = {'bed':"Bed Temp Standard Deviation",
                   'nozzle temp':"Nozzle Temp Standard Deviation",
@@ -214,15 +301,20 @@ def find_matching_setting(param_name: str, settings: dict[str, Any]) -> int:
                   'start_temperature':'Simulated Annealing Starting Temperature',
                   'cooling_rate':'Simulated Annealing Cooling Rate',
                   'retain_historical_context':'Retain Historical Context',
-                  'rng_seed':'RNG Seed'}
-   param_name = param_name.lower()
-   if param_name in maping_dict:
-      return settings[maping_dict[param_name]]
-   
+                  'rng_seed':'RNG Seed',
+                  'verbose output':'Verbose Output'}
+   if param_name.lower() in maping_dict:
+      value = settings[maping_dict[param_name.lower()]]
    else:
-      return -1
+      try:
+         value = settings[param_name]
+      except:
+         value = -1 
+   return value
 
 def get_parameter_data(request: PlanRequest) -> tuple[list,list,list[tuple],list]:
+   # Grabs the parameter names, current values, bounds, and deviations to use for the perturbation
+   # Since the perturbation is based on the root conditon 
    parameter_names = []
    parameter_values = []
    parameter_bounds = []
@@ -240,11 +332,13 @@ def get_parameter_data(request: PlanRequest) -> tuple[list,list,list[tuple],list
 
    return parameter_names, parameter_values, parameter_bounds, parameter_deviations
 
-def get_historical_param_data(request: PlanRequest) ->  tuple[list,list,list[tuple],list]:
+def get_historical_param_data(request: PlanRequest) ->  tuple[list,list,list[tuple],list,bool]:
+   global root_condition_dict
    parameter_names = []
    parameter_values = []
    parameter_bounds = []
    parameter_deviations = []
+   missing_data = False
    for parameter in request.parameters:
       parameter_names.append(parameter.name)
       parameter_bounds.append((parameter.minimum_value,parameter.maximum_value))
@@ -252,9 +346,15 @@ def get_historical_param_data(request: PlanRequest) ->  tuple[list,list,list[tup
       if root_condition_dict.get(parameter.name):
          parameter_values.append(root_condition_dict[parameter.name])
       else:
-         print(f"Error! Tried finding historical data, but none existing for parameter {parameter.name}. Planner cannot plan!")
-   
-   return parameter_names, parameter_values, parameter_bounds, parameter_deviations
+         missing_data = True
+      
+      if missing_data:
+         print('Warning, the requested parameters and historical data do not fully align.')
+         print(f'\tRequest parameters: {', '.join(parameter_names)}')
+         print(f'\tHistorical parameters: {', '.join(root_condition_dict.keys())}')
+         print('Proceeding with new values for missing parameters, but this may lead to suboptimal results.')
+
+   return parameter_names, parameter_values, parameter_bounds, parameter_deviations, not missing_data
       
 
 def perturb_parameters(names: list, condition: list, bounds:list[tuple], deviations:list, rng:np.random.Generator) -> list: 
