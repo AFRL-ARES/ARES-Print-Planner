@@ -4,7 +4,7 @@
 # File: /src/athena_planner/simulated_annealing/simulated_anealing.py
 # Project: ARES-Print-Planner
 # Created Date: Monday, October 27th 2025, 1:54:16 pm
-# Author(s): Arthur W. N. Sloan
+# Author(s): Nicholas Kleiner, Arthur W. N. Sloan
 # -----
 # MIT License
 # 
@@ -39,6 +39,8 @@ root_condition_index = -1
 root_condition_dict = {}
 last_condition_dict = {}
 last_result_value = -1.0
+best_condition_dict = {}
+best_condition_value = -1.0
 root_condition_result_value = -1.0
 total_iterations_completed = 0
 rand_gen = -1
@@ -105,6 +107,8 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
    global root_condition_dict
    global last_result_value
    global root_condition_result_value
+   global best_condition_dict
+   global best_condition_value
    global rand_gen
    global total_iterations_completed
 
@@ -119,11 +123,13 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
          print("Retaining Historical Context is ENABLED")
       else:
          print("Retaining Historical Context is DISABLED")
+
       if root_condition_dict:
-         print("The current root condition is:")
+         print("Summary of past conditions:")
+
          for key, value in root_condition_dict.items():
-            print(f"\tParam: {key}, Value: {value}")
-         print(f'\tWith Objective Score: {root_condition_result_value}')
+            print(f"\t{key}: root = {value:.3f}, last={last_condition_dict.get(key, -1):.3f}, best={best_condition_dict.get(key, -1):.3f}")
+         print(f'\tWith Objective Score: root = {root_condition_result_value:.3f} last = {last_result_value:.3f}, best = {best_condition_value:.3f}')
 
    parameter_names : List[str] = []
    new_test_condition : List[float] = []
@@ -167,6 +173,7 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
                   print("Problem trying to access intial value! Value was not of type float.")
                   new_test_condition.append(0.0)
       else:
+
          if verbose:
             print("First iteration, using initial values.")
          for param in request.parameters:
@@ -180,6 +187,8 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
                print("Problem trying to access intial value! Value was not of type float.")
                new_test_condition.append(0.0)
 
+         parameter_names, root_condition_values, bounds, deviations = get_parameter_data(request)
+
    elif N_iter == 1: # On the second iteration, may or may not have meaninful historical data to compare to depending on if historical context exists.
       if retain_historical_context: # If there is hisorical context, we use the normal check & update root locgic
          try:
@@ -190,8 +199,10 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
          for param in request.parameters:
             root_condition_dict.update({param.name: param.param_history[0].planned_value})
             last_condition_dict.update({param.name: param.param_history[0].planned_value})
+            best_condition_dict.update({param.name: param.param_history[0].planned_value})
             root_condition_result_value = request.analysis_results[0]
             last_result_value = request.analysis_results[0]
+            best_condition_value = request.analysis_results[0]
             if verbose:
                print("Only one itteration completed, using it as the root conditon.")
                print("The new root condition is:")
@@ -214,7 +225,7 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
       if verbose:
          print("The new root condition is:")
          for key, value in root_condition_dict.items():
-            print(f"\tParam: {key}, Value: {value}")
+            print(f"\t{key} = {value:.3f}")
          print(f'\tWith Objective Score: {root_condition_result_value}')
          print("Perturbing from root condition to get new test condition.")
 
@@ -223,8 +234,8 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
 
    if verbose:
       print("Proposed new test condition:")
-      for n,v in zip(parameter_names, new_test_condition):
-         print(f"\tParam: {n}, Value: {v}")
+      for n,v,r in zip(parameter_names, new_test_condition,root_condition_values):
+         print(f"\t{n} = {v:.3f} ({v-r:+.3f})")
       print(f"-------------------------")
       total_iterations_completed += 1
       
@@ -239,6 +250,8 @@ def check_and_update_root(request: PlanRequest, retain_historical_context:bool, 
    global total_iterations_completed
    global root_condition_dict
    global last_condition_dict
+   global best_condition_dict
+   global best_condition_value
    # 
 
    start_temp = find_matching_setting("start_temperature", request.settings)
@@ -252,8 +265,14 @@ def check_and_update_root(request: PlanRequest, retain_historical_context:bool, 
    last_result_value = request.analysis_results[-1]
    delta = root_condition_result_value - test_conditon_value
    if verbose:
-      print(f"Root Condition Score: {root_condition_result_value}")
-      print(f"Test Condition Score: {test_conditon_value}")
+      print(f"Root Condition Score: {root_condition_result_value:.3f}")
+      print(f"Test Condition Score: {test_conditon_value:.3f}")
+      print(f"Best Condition Score: {best_condition_value:.3f}")
+   # Check if this is the best score and update
+   if test_conditon_value != -1 and (test_conditon_value < best_condition_value or best_condition_value == -1):
+      best_condition_value = test_conditon_value
+      for param in request.parameters:
+         best_condition_dict.update({param.name: param.param_history[-1].planned_value})
 
    # This is a minimization planner, so a better results is a lower score
    delta_criteria = delta > 0
@@ -262,8 +281,7 @@ def check_and_update_root(request: PlanRequest, retain_historical_context:bool, 
    # This can potentially kick the planner out of a local minimum.
    annealing_criteria = np.exp(delta/anneal_temp) > rng.uniform(0, 1)
    if verbose:
-      print(f"Delta Criteria Met: {delta_criteria}")
-      print(f"Annealing Criteria Met: {annealing_criteria}")
+      print(f"Delta Criteria: {delta_criteria}, Annealing Criteria: {annealing_criteria}")
 
    if delta_criteria or annealing_criteria:
       if verbose:
@@ -273,6 +291,7 @@ def check_and_update_root(request: PlanRequest, retain_historical_context:bool, 
       for param in request.parameters:
          root_condition_dict.update({param.name: param.param_history[-1].planned_value})
          last_condition_dict.update({param.name: param.param_history[-1].planned_value})
+
    elif root_condition_result_value == -1: 
       if verbose:
          print("No Score for existing root condition. Updating root condition to the test condition.")
@@ -296,7 +315,7 @@ def find_matching_setting(param_name: str, settings: dict[str, Any]):
                   'extrusion':'Extrusion Rate Mod Standard Deviation',
                   'speed':"Speed Mod Standard Deviation",
                   'retraction':'Retraction Length Standard Deviation',
-                  'acceleration':'Acceleration Standard Deviation',
+                  'acceleration':'Acceleration Mod Standard Deviation',
                   'fan speed mod':'Fan Speed Mod Standard Deviation',
                   'start_temperature':'Simulated Annealing Starting Temperature',
                   'cooling_rate':'Simulated Annealing Cooling Rate',

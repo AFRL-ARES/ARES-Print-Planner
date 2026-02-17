@@ -36,7 +36,7 @@ from src.athena_planner.simulated_annealing import simulated_annealing_planner
 if __name__ == "__main__":
   name = "Simulated Annealing 3D Print Planner"
   description = "A PyAres implementation of Graig Ganitano's Simulated Annealing 3D Printing Planner, see DOI: 10.1007/s40964-023-00480-1"
-  version = "1.0.1"
+  version = "1.1.0"
   planner = AresPlannerService(simulated_annealing_planner,
                                name,
                                description,
