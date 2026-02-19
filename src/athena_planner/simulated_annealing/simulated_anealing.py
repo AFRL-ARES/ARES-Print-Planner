@@ -128,8 +128,8 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
          print("Summary of past conditions:")
 
          for key, value in root_condition_dict.items():
-            print(f"\t{key}: root = {value:.3f}, last={last_condition_dict.get(key, -1):.3f}, best={best_condition_dict.get(key, -1):.3f}")
-         print(f'\tWith Objective Score: root = {root_condition_result_value:.3f} last = {last_result_value:.3f}, best = {best_condition_value:.3f}')
+            print(f"\t{key}: root= {value:.3f}, last={last_condition_dict.get(key, -1):.3f}, best={best_condition_dict.get(key, -1):.3f}")
+         print(f'\tWith Objective Score: root={root_condition_result_value:.3f} last={last_result_value:.3f}, best={best_condition_value:.3f}')
 
    parameter_names : List[str] = []
    new_test_condition : List[float] = []
@@ -197,9 +197,9 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
             print(f"Error updating root conditon on second itteration - {e}")
       else: # If there is no historical context, we just use the first itteration as the root condition without comparison, and then perturb from there on the next itteration
          for param in request.parameters:
-            root_condition_dict.update({param.name: param.param_history[0].planned_value})
-            last_condition_dict.update({param.name: param.param_history[0].planned_value})
-            best_condition_dict.update({param.name: param.param_history[0].planned_value})
+            root_condition_dict.update({param.name: param.param_history[1].planned_value})
+            last_condition_dict.update({param.name: param.param_history[1].planned_value})
+            best_condition_dict.update({param.name: param.param_history[1].planned_value})
             root_condition_result_value = request.analysis_results[0]
             last_result_value = request.analysis_results[0]
             best_condition_value = request.analysis_results[0]
@@ -305,7 +305,7 @@ def check_and_update_root(request: PlanRequest, retain_historical_context:bool, 
          print("Retaining existing root condition.")
       # Root condition remains the same, just update the last condition
       for param in request.parameters:
-         last_condition_dict.update({param.name: param.param_history[-1]})
+         last_condition_dict.update({param.name: param.param_history[-1].planned_value})
 
 #%% 
 def find_matching_setting(param_name: str, settings: dict[str, Any]):
