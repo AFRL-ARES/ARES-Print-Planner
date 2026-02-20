@@ -8,7 +8,7 @@ include = ["PyAres*"]
 
 [project]
 name = "athena_planner"
-version = 1.0.0
+version = "1.0.0"
 requires-python = ">= 3.10"
 authors = [{ name = "AFRL", email = "AFRL.RX.AREScontact@us.af.mil" }]
 description = "Graig Ganitano's Simulated annealing planner for 3d printing"
@@ -21,4 +21,3 @@ dependencies = [
 
 [project.urls]
 "Homepage" = "https://github.com/AFRL-ARES"
-
