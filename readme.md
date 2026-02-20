@@ -106,7 +106,7 @@ Due to limitations of communication between ARES OS and PyAres service an explic
 To start the planner service, ensure you have activated the approriate python environment:
 
 ```bash
-python start_planner_simulated annealing_analyzer.py
+python start_planner_simulated_annealing.py
 ```
 The service will start on port 8002 (localhost) by default. It waits for PyAres requests.
 
