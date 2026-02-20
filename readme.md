@@ -30,7 +30,7 @@ known good conditions after the root conditions is updated by the annealing crit
 ## Project Structure
 * `start_planner_simulated_annealing.py`: The main entry point. Starts the PyAres service.
 * `src/athena_planner/`: Main package source.
-    * `simulated_annealing/simulated_annealing.py`: Contains the planner for logic
+    * `simulated_annealing/simulated_annealing.py`: Contains the logic for the planner
 
 ## Installation & Environment Setup
 
@@ -109,4 +109,9 @@ To start the planner service, ensure you have activated the approriate python en
 python start_planner_simulated annealing_analyzer.py
 ```
 The service will start on port 8002 (localhost) by default. It waits for PyAres requests.
+
+## Testing/Demo
+The script `testing/test_simulated_annealing.py` will perform a basic communication check with the planner as well as demonstrate the planner functionality. For propper functionality, this script should be called from a separate terminal instance from the one running the planner.
+
+The testing script will generate a plot of the normalized variaton in the parameters and the objective score vs the # of iterations for planning on a randomized process response surface comprised of N-dimensional Gaussian distributions. If a test is run with only two parameters, the testing script will also generate 2-d and 3-d plots of the response surface with experimental points marked. The test script then will then run trials over a large number of unique process reponse surfaces and plot median convergence performance w.r.t. the required number of iterations.
 

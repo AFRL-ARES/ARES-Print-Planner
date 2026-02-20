@@ -150,7 +150,6 @@ def plot_params(n_iter, planning_parameters, results ):
 
     ax_t.set_xlim(-1, n_iter+1)
     ax_t.set_ylim(-0.05,1.05)
-    ax_t.set_xticks(np.arange(0,n_iter))
     ax_t.set_yticks([0,0.5,1])
     ax_t.set_yticklabels([r'$x_{min}$','',r'$x_{max}$'])
     ax_t.set_xlabel('Iteration',fontsize=12,fontweight='bold')
@@ -208,7 +207,7 @@ def plot_surface_2d_3d(response_surface, planning_parameters, results,res=100):
     ax.scatter(p_dict[param_names[0]][np.argmin(results)], p_dict[param_names[1]][np.argmin(results)], c='red', marker='*', s=200, label='Best Found', zorder=10)
     # Connect the dots to show sequence
     
-    ax.set_title("2D Landscape & Trajectory")
+    ax.set_title("2D Landscape")
     ax.set_xlabel(f"Param: {param_names[0]}")
     ax.set_ylabel(f"Param: {param_names[1]}")
     ax.legend()
@@ -286,11 +285,11 @@ def run_test(test_client,
 
 if __name__ == "__main__":
     # Settings
-    N_iterations = 200
+    N_iterations = 200 # Number of "experiments" in a trial
     test_seed = 7654321098
-    plan_seed = 1234567890
-    N_params = 2
-    N_tests = 100
+    plan_seed = 1234567890 
+    N_params = 2 # Number of parameters to optimize
+    N_tests = 100 # Number of trials to run to gather average performance data
 
 
 
@@ -394,7 +393,7 @@ if __name__ == "__main__":
     maxes = np.max(np.array(collected_results),axis=0)
 
     fig, ax = plt.subplots()
-    ax.set_title(f'{N_params} Param. Optimization, {N_tests} Trials, {N_iterations} Experiments Each.')
+    ax.set_title(f'{N_params} Param. Optimization, {N_tests} Unique Trials, {N_iterations} Experiments Each.')
     ax.fill_between(np.arange(N_iterations-1),mins,maxes,alpha=0.2,label='Min/Max')
     ax.plot(np.arange(N_iterations-1),quants[2,:],ls='-',color='tab:blue',label='Median')
 
