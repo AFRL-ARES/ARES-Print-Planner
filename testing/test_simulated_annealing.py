@@ -9,11 +9,13 @@ import noise
 class SyntheticProcessResponse:
     def __init__(self, 
                  param_bounds: dict,
+                 output_bounds= (0.0, 1.0), 
                  num_gaussians: int = 5, 
                  noise_scale: float = 0.1, 
                  noise_frequency: float = 2.0, 
                  response_bounds: tuple = (0, 1),
-                 seed: int | None = None):
+                 seed: int | None = None,
+                 calibration_samples=10000):
         """
         Initializes the synthetic process response space using modern NumPy RNG.
 
@@ -32,11 +34,14 @@ class SyntheticProcessResponse:
         self.rng = np.random.default_rng(seed)
 
         self.param_bounds = param_bounds
+        self.output_bounds = output_bounds
         self.param_names = sorted(list(param_bounds.keys()))
         self.dims = len(self.param_names)
         self.response_bounds = response_bounds
         self.noise_scale = noise_scale
         self.noise_freq = noise_frequency
+        self.raw_min = 0.0
+        self.raw_max = 1.0
 
         # --- Generate Random Gaussians ---
         self.gaussians = []
@@ -66,29 +71,24 @@ class SyntheticProcessResponse:
         # Random offset for Perlin noise
         self.noise_offset = self.rng.uniform(0, 100, self.dims)
 
-    def evaluate(self, params):
-        """
-        Queries the synthetic space at a specific coordinate.
-        """
-        try:
-            point = np.array([params[k] for k in self.param_names])
-        except KeyError as e:
-            raise KeyError(f"Missing parameter in input: {e}")
+        # calibrate the output scale
+        self._calibrate_bounds(calibration_samples)
 
-        # 1. Calculate Gaussian Component
+    
+    def _raw_evaluate(self, point):
+        """Internal method to compute the unscaled response for a numpy array point."""
+        # Gaussian Component
         gaussian_sum = 0.0
         for g in self.gaussians:
             diff = (point - g['center']) ** 2
             width = 2 * (g['bandwidth'] ** 2)
             exponent = -np.sum(diff / width)
-            
             gaussian_sum += g['amplitude'] * np.exp(exponent)
 
-        # 2. Calculate Perlin Noise Component
+        # Perlin Noise Component
         norm_point = []
         for i, p_name in enumerate(self.param_names):
             low, high = self.param_bounds[p_name]
-            # Normalize to 0-1 range, then scale by frequency
             norm_val = ((point[i] - low) / (high - low)) * self.noise_freq
             norm_point.append(norm_val + self.noise_offset[i])
 
@@ -100,13 +100,47 @@ class SyntheticProcessResponse:
         elif self.dims == 3:
             noise_val = noise.pnoise3(norm_point[0], norm_point[1], norm_point[2])
         else:
-            # Fallback for >3 dimensions
             noise_val = noise.pnoise3(norm_point[0], norm_point[1], sum(norm_point[2:]))
 
-        total_response = gaussian_sum + (noise_val * self.noise_scale)
-        
-        return total_response
+        return gaussian_sum + (noise_val * self.noise_scale)
+    
+    def _calibrate_bounds(self, num_samples):
+        """Samples the parameter space to estimate the global min and max."""
+        # Generate random samples across the N-dimensional space
+        samples = np.zeros((num_samples, self.dims))
+        for i, p_name in enumerate(self.param_names):
+            low, high = self.param_bounds[p_name]
+            samples[:, i] = self.rng.uniform(low, high, num_samples)
 
+        # Evaluate all samples to find empirical min/max
+        raw_responses = np.array([self._raw_evaluate(pt) for pt in samples])
+        
+        self.raw_min = np.min(raw_responses)
+        self.raw_max = np.max(raw_responses)
+        
+        # Prevent division by zero in case of a completely flat landscape
+        if np.isclose(self.raw_min, self.raw_max):
+            self.raw_max = self.raw_min + 1e-9
+
+
+    def evaluate(self, params):
+        """Queries the synthetic space and returns a scaled response."""
+        try:
+            point = np.array([params[k] for k in self.param_names])
+        except KeyError as e:
+            raise KeyError(f"Missing parameter in input: {e}")
+
+        # 1. Get raw response
+        raw_val = self._raw_evaluate(point)
+
+        # 2. Scale to target bounds
+        t_min, t_max = self.output_bounds
+        scaled_val = t_min + ((raw_val - self.raw_min) * (t_max - t_min)) / (self.raw_max - self.raw_min)
+
+        # 3. Clip the output
+        # Because calibration is empirical, a real query might slightly exceed the 
+        # sampled raw_min or raw_max. Clipping ensures strict adherence to output_bounds.
+        return float(np.clip(scaled_val, t_min, t_max))
 
 def plot_params(n_iter, planning_parameters, results ):
     # 1. 2d plot of the variations in the parameters
@@ -163,7 +197,7 @@ def plot_surface_2d_3d(response_surface, planning_parameters, results,res=100):
 
     for i in range(X.shape[0]):
         for j in range(X.shape[1]):
-            Z[i, j] = -response_surface.evaluate({param_names[0]: X[i, j], param_names[1]: Y[i, j]})
+            Z[i, j] = response_surface.evaluate({param_names[0]: X[i, j], param_names[1]: Y[i, j]})
     fig, ax = plt.subplots()
     contour = ax.contourf(X, Y, Z, levels=30, cmap='viridis', alpha=0.8)
     fig.colorbar(contour, ax=ax, label='Objective Value')
@@ -216,20 +250,23 @@ def run_test(test_client,
     # Run Planning Loop using the synthetic process response space
     results = []
     param_histories = [[] for i in range(N_params)]
+
     for i in range(N_iterations):
         planning_parameters = []
+
         if i == 0:
             results = []
         else:
             print(response_dict)
-            results.append(-response_surface.evaluate(response_dict)) # Negative because the planner is a minimization planner
+            results.append(response_surface.evaluate(response_dict)) # Negative because the planner is a minimization planner
 
         for j in range(len(param_names[:N_params])):
             if i == 0: # The ARES OS loop always starts with Plan, so the first entry will will have no result and no paramter history.
                 param_histories[j].append(ParameterHistoryItem(planned_value=[], achieved_value=[]))
             else:
                 val = response_dict[param_names[j]]
-                param_histories[j].append(ParameterHistoryItem(planned_value=float(val), achieved_value=float(val)))  
+                param_histories[j].append(ParameterHistoryItem(planned_value=float(val), achieved_value=float(val))) 
+            
             planning_parameters.append(PlanningParameter(name=param_names[j],
                                                         minimum_value=bounds[j][0],
                                                         maximum_value=bounds[j][1],
@@ -249,10 +286,10 @@ def run_test(test_client,
 
 if __name__ == "__main__":
     # Settings
-    N_iterations = 100
-    test_seed = 9876127490123454321
-    plan_seed = 123456789
-    N_params = 5
+    N_iterations = 200
+    test_seed = 7654321098
+    plan_seed = 1234567890
+    N_params = 2
     N_tests = 100
 
 
@@ -265,9 +302,9 @@ if __name__ == "__main__":
                      'Retraction Length Standard Deviation':0.5,
                      'Acceleration Mod Standard Deviation':0.1,
                      'Fan Speed Mod Standard Deviation':0.25,
-                     'Simulated Annealing Starting Temperature':10,
+                     'Simulated Annealing Starting Temperature':20,
                      'Simulated Annealing Cooling Rate':0.01,
-                     'Retain Historical Context':True,
+                     'Retain Historical Context':False,
                      'Verbose Output':True,
                      'RNG Seed':plan_seed}
     
@@ -298,10 +335,11 @@ if __name__ == "__main__":
               (0,1)]
     
     process_response = SyntheticProcessResponse(dict(zip(param_names[:N_params], bounds)),
+                                                output_bounds=(1.0,10000),
                                                 num_gaussians=int(rng.integers(3,9)), 
                                                 noise_scale=rng.uniform(0.05,0.2), 
                                                 noise_frequency=rng.uniform(1.0,10.0), 
-                                                seed=test_seed)
+                                                seed=int(rng.integers(1e6,1e12)))
     
     params_dict ={'names':param_names,
                   'initial_values':data,
@@ -335,11 +373,12 @@ if __name__ == "__main__":
     settings_dict.update({'Retain Historical Context':False})
 
     for i in range(N_tests):
-        # process_response = SyntheticProcessResponse(dict(zip(param_names[:N_params], bounds)),
-        #                                         num_gaussians=int(rng.integers(3,9)), 
-        #                                         noise_scale=rng.uniform(0.05,0.2), 
-        #                                         noise_frequency=rng.uniform(1.0,10.0), 
-        #                                         seed=test_seed)
+        process_response = SyntheticProcessResponse(dict(zip(param_names[:N_params], bounds)),
+                                                    output_bounds=(1.0,10000),
+                                                    num_gaussians=int(rng.integers(3,9)), 
+                                                    noise_scale=rng.uniform(0.05,0.2), 
+                                                    noise_frequency=rng.uniform(1.0,10.0), 
+                                                    seed=test_seed)
         _, results = run_test(test_client,
                                 settings_dict,
                                 params_dict,
@@ -349,16 +388,25 @@ if __name__ == "__main__":
         best_results = np.array([np.min(results[:i+1]) for i in range(len(results))])
         collected_results.append(best_results)
 
-    print(collected_results)
-    means = np.mean(np.array(collected_results),axis=0)
+    quants = np.quantile(np.array(collected_results), [0.05,0.25,0.5,0.75,0.95],axis=0)
+
     mins = np.min(np.array(collected_results),axis=0)
     maxes = np.max(np.array(collected_results),axis=0)
 
     fig, ax = plt.subplots()
-    ax.fill_between(np.arange(N_iterations-1),mins,maxes,alpha=0.2)
-    ax.plot(np.arange(N_iterations-1),means)
+    ax.set_title(f'{N_params} Param. Optimization, {N_tests} Trials, {N_iterations} Experiments Each.')
+    ax.fill_between(np.arange(N_iterations-1),mins,maxes,alpha=0.2,label='Min/Max')
+    ax.plot(np.arange(N_iterations-1),quants[2,:],ls='-',color='tab:blue',label='Median')
+
+    ax.plot(np.arange(N_iterations-1),quants[1,:],ls='--',color='tab:blue',label='25th/75 Percentile')
+    ax.plot(np.arange(N_iterations-1),quants[3,:],ls='--',color='tab:blue')
+
+    ax.plot(np.arange(N_iterations-1),quants[0,:],ls=':',color='tab:blue',label='5th/95th Percentile')
+    ax.plot(np.arange(N_iterations-1),quants[4,:],ls=':',color='tab:blue')
+
     ax.set_xlabel('Iteration #',fontsize=12,fontweight='bold')
     ax.set_ylabel('Objective Score',fontsize=12,fontweight='bold')
+    ax.legend()
     fig.tight_layout()
     plt.show()
 
