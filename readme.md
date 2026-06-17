@@ -115,3 +115,5 @@ The script `testing/test_simulated_annealing.py` will perform a basic communicat
 
 The testing script will generate a plot of the normalized variaton in the parameters and the objective score vs the # of iterations for planning on a randomized process response surface comprised of N-dimensional Gaussian distributions. If a test is run with only two parameters, the testing script will also generate 2-d and 3-d plots of the response surface with experimental points marked. The test script then will then run trials over a large number of unique process reponse surfaces and plot median convergence performance w.r.t. the required number of iterations.
 
+## Distribution
+**Distribution Statement A**. Approved for public release: distribution is unlimited. AFRL-2026-2820
