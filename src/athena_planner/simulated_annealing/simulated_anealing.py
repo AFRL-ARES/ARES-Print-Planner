@@ -31,7 +31,7 @@
 ###
 
 import numpy as np
-from PyAres import PlanRequest, PlanResponse
+from PyAres import PlanRequest, PlanResponse, Outcome
 from typing import Any, List
 from time import time
 #%% persistent plannervariables, these are retained between calls to the planner service
@@ -239,7 +239,7 @@ def simulated_annealing_planner(request: PlanRequest) -> PlanResponse:
       print(f"-------------------------")
       total_iterations_completed += 1
       
-   return PlanResponse(parameter_names=parameter_names, parameter_values=new_test_condition)
+   return PlanResponse(parameter_names=parameter_names, parameter_values=new_test_condition,outcome=Outcome.SUCCESS)
 
    
 
